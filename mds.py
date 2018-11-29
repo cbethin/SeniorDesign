@@ -1,83 +1,85 @@
 from sklearn.manifold import MDS
 from matplotlib import pyplot as plt
 from matplotlib.collections import LineCollection
-import numpy
-import sys
-import json
-import nltk
 import numpy as np
+import json, nltk, numpy, os, sys
+
+import nlp_analysis as nlp
+import stats
+
+def get_pos_counts_for_file(filename):
+    with open(filename) as f:
+        try:
+            data = json.load(f)
+            print("Loading data for " + filename)
+            return nlp.get_total_pos_counts_for_posts(data['data'])
+        except Exception as ex:
+            print("Could not load file:", filename)
+            template = "An exception of type {0} occurred. Arguments:\n{1!r}"
+            message = template.format(type(ex).__name__, ex.args)
+            print(message)
 
 def get_pos_counts_for_subreddit(subreddit="depression"):
-    post_dict = {}
-
     with open('datasets/'+subreddit+'_text_samples_extended.json') as f:
         data = json.load(f)
 
     print("Loading data for subreddit " + subreddit)
-    for x in range(0, 100):
-        if 'selftext' in data['data'][x]:
-            tok = nltk.word_tokenize(data.get('data')[x].get('selftext'))
-            post_dict[data.get('data')[x].get('title')] = nltk.pos_tag(tok)
-
-# list all parts of speech, and count instances of each
-
-    pos = post_dict.values()
-    counts = dict()
-    # poss = pos.split()
-
-    for post in pos:
-        for word_pos_pair in post:
-            if word_pos_pair[1] in counts:
-                counts[word_pos_pair[1]] += 1
-            else:
-                counts[word_pos_pair[1]] = 1
-
-    return counts
-
+    return nlp.get_total_pos_counts_for_posts(data['data'])
 
 def main():
 
-    vec = []
-
-# Get pos counts for each subreddit
+    # Get pos counts for each subreddit
     subreddits = ['depression', 'Anxiety', 'foreveralone', 'socialanxiety', 'SuicideWatch', 
                     'berkeley', 'PowerLedger', 'TalesFromYourServer', 'tifu']
 
+    ## LIST FILES TO BE SEARCHED THROUGH FOR MDS
+    # depressed_user_filenames = ['depressed-users/'+x for x in os.listdir('datasets/extended-15k/depressed-users')] 
+    depressed_user_filenames = []
+    other_filenames = ['id-depression.json'] + [x+'_text_samples_extended.json' for x in subreddits]
+    filenames = other_filenames + depressed_user_filenames
+
     totalCounts = []
-    for subreddit in subreddits:
-        counts = get_pos_counts_for_subreddit(subreddit=subreddit)
-        totalCounts.append(list(counts.values()))
 
-    print(totalCounts)
-    print("------")
+    # GET POS COUNT FOR THE DATA IN EACH FILE
+    workingFilenames = []
+    for filename in filenames:
+        counts = get_pos_counts_for_file('datasets/extended-15k/'+filename)
+        
+        # convert dictionary to array of just counts
+        countsArray = []
+        for pos in counts:
+            countsArray.append(counts[pos])
 
-# append part of speech counts to empty array
+        # normalize 
+        if countsArray != [] and max(countsArray) - min(countsArray) != 0:
+            countsArrayNormalized = [x for x in countsArray] # stats.normalize(countsArray)
+            totalCounts.append(countsArrayNormalized)
+            workingFilenames.append(filename)
 
-    # vec.extend(counts.values())
-    vec = np.asarray(totalCounts)
 
-# begin MDS plotting
+    print("Total:", totalCounts)
+    # Assure each subreddit is an array of the same size
+    vec = []
+    longest_row_len = max(len(row) for row in totalCounts)
 
+    ## COMBINE THE NORMALIZED POS COUNTS IN ONE VECTOR
+    for row in totalCounts:
+        row = np.append(np.array(row), np.zeros(longest_row_len-len(row)))
+        vec = np.append(vec, row)
+
+    # Reshape array to be 2D array
+    print(vec.shape)
+    vec = np.reshape(vec, (len(workingFilenames), int(vec.shape[0]/len(workingFilenames))))
+
+    # BEGIN MDS PLOTTING   
     embedding = MDS(n_components=2)
     X_transformed = embedding.fit_transform(vec)
     X_transformed.shape
-    print(X_transformed)
 
-    # ax = plt.axes([0., 0., 1., 1.])
-
-    s = 100
-    plt.scatter(X_transformed[:, 0], X_transformed[:, 1], color='navy', s=s, lw=0,
-                label='Depression')
-
-    # a sequence of (*line0*, *line1*, *line2*), where::
-    #            linen = (x0, y0), (x1, y1), ... (xm, ym)
-    # segments = [[X_transformed[i, :], X_transformed[j, :]]
-    #             for i in range(len(X_transformed)) for j in range(len(X_transformed))]
-    # values = numpy.abs(vec)
-    # lc = LineCollection(segments, zorder=0, cmap=plt.cm.Blues, norm=plt.Normalize(0, values.max()))
-    # lc.set_array(X_transformed.flatten())
-    # lc.set_linewidths(numpy.full(len(segments), 0.5))
-    # ax.add_collection(lc)
+    _, ax = plt.subplots()
+    ax.scatter(vec[:, 0], vec[:, 1])
+    for i, subreddit in enumerate(other_filenames):
+        ax.annotate(subreddit.split('_')[0], (vec[i][0], vec[i][1]))
 
     plt.show()
 
