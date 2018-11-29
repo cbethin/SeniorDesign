@@ -4,8 +4,8 @@ from matplotlib.collections import LineCollection
 import numpy as np
 import json, nltk, numpy, os, sys
 
-import nlp_analysis as nlp
-import stats
+from functions import nlp_analysis as nlp
+from functions import stats
 
 def get_pos_counts_for_file(filename):
     with open(filename) as f:
